@@ -29,21 +29,37 @@
 #include <trace_buf.h>
 #include <sachead.h>
 
-/* */
+/**
+ * @name
+ *
+ */
 #define PROG_NAME       "sac2tnk"
 #define VERSION         "1.0.0 - 2025-05-09"
 #define AUTHOR          "Benjamin Ming Yang"
 
-/* */
+/**
+ * @name
+ *
+ */
 #define MAX_SCNL_CODE_LEN  8
 #define DEF_MAX_SAMPS      100
 #define TIMESTAMP_FORMAT   "%04d/%02d/%02d_%02d:%02d:%05.2f"
+
+/**
+ * @name
+ *
+ */
+#define BYTE_ORDER_UNDEFINE      -1
+#define BYTE_ORDER_LITTLE_ENDIAN  0
+#define BYTE_ORDER_BIG_ENDIAN     1
+
 /**
  * @name Internal Function Prototypes
  *
  */
 static char *trim_string( char *, const int );
 static char *timestamp_gen( char *, const double );
+static int   probe_host_byteorder( void );
 static int   proc_argv( int, char *[] );
 static void  usage( void );
 
@@ -61,6 +77,8 @@ static float GapValue    = SACUNDEF;
 /* */
 static bool  SeisanChanFix = false;
 static bool  AppendOutput  = false;
+/* */
+static int HostByteOrder = BYTE_ORDER_UNDEFINE;
 
 /**
  * @brief
@@ -156,7 +174,8 @@ int main( int argc, char **argv )
 		outbuf.trh2.samprate = 1.0 / delta;
 	}
 /* */
-	strcpy(outbuf.trh2.datatype, "i4");
+	HostByteOrder = probe_host_byteorder();
+	strcpy(outbuf.trh2.datatype, HostByteOrder == BYTE_ORDER_LITTLE_ENDIAN ? "i4" : "s4");
 
 /* */
 	fprintf(
@@ -183,7 +202,7 @@ int main( int argc, char **argv )
 		ldata_ptr = (int32_t *)(&outbuf.trh2 + 1);
 	/* */
 		for ( i = 0; outbuf.trh2.nsamp < MaxSample && npts > 0; i++, seis_ptr++, npts-- ) {
-			if ( *seis_ptr != GapValue ) {
+			if ( isinf(GapValue) || *seis_ptr != GapValue ) {
 			/* */
 				if ( outbuf.trh2.nsamp == 0 )
 					outbuf.trh2.starttime = starttime + delta * i;
@@ -289,6 +308,18 @@ static char *timestamp_gen( char *buffer, const double timestamp )
 /**
  * @brief
  *
+ * @return int
+ */
+static int probe_host_byteorder( void )
+{
+	const uint16_t probe = 256;
+
+	return *(const uint8_t *)&probe ? BYTE_ORDER_BIG_ENDIAN : BYTE_ORDER_LITTLE_ENDIAN;
+}
+
+/**
+ * @brief
+ *
  * @param argc
  * @param argv
  * @return int
@@ -350,7 +381,10 @@ static int proc_argv( int argc, char *argv[] )
 			Multiplier = atof(argv[++i]);
 		}
 		else if ( !strcmp(argv[i], "-g") ) {
-			GapValue = atof(argv[++i]);
+			if ( !strcmp(argv[++i], "inf") )
+				GapValue = INFINITY;
+			else
+				GapValue = atof(argv[i]);
 		}
 		else if ( !strcmp(argv[i], "-a") ) {
 			AppendOutput = true;
